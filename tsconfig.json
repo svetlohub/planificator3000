@@ -1,0 +1,9 @@
+{
+  "extends": "@planner3000/config/typescript/base",
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/ui" },
+    { "path": "apps/web" }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "@planner3000/config/typescript/next",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@planner3000/ui": ["../../packages/ui/src"],
+      "@planner3000/shared": ["../../packages/shared/src"]
+    }
+  }
+}

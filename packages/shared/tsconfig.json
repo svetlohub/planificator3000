@@ -1,0 +1,6 @@
+{
+  "extends": "@planner3000/config/typescript/react-library",
+  "compilerOptions": {
+    "rootDir": "src"
+  }
+}

@@ -1,0 +1,17 @@
+@theme {
+  --color-background: oklch(0.985 0 0);
+  --color-foreground: oklch(0.18 0 0);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.18 0 0);
+  --color-primary: oklch(0.54 0.22 264);
+  --color-primary-foreground: oklch(0.98 0 0);
+  --color-secondary: oklch(0.93 0.02 260);
+  --color-secondary-foreground: oklch(0.22 0.03 260);
+  --color-accent: oklch(0.9 0.06 260);
+  --color-accent-foreground: oklch(0.18 0.04 260);
+  --color-muted: oklch(0.94 0 0);
+  --color-muted-foreground: oklch(0.52 0 0);
+  --color-border: oklch(0.88 0 0);
+  --color-input: oklch(0.88 0 0);
+  --color-ring: oklch(0.54 0.22 264);
+}
