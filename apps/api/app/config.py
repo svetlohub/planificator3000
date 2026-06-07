@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,27 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def require_google_credentials_outside_local(self) -> Self:
+        if self.app_env != "local":
+            missing: list[str] = []
+            if not self.google_sheet_id:
+                missing.append("GOOGLE_SHEET_ID")
+            if not self.google_service_account_json:
+                missing.append("GOOGLE_SERVICE_ACCOUNT_JSON")
+            if missing:
+                msg = (
+                    f"Required environment variables are not set for app_env={self.app_env!r}: "
+                    f"{', '.join(missing)}"
+                )
+                raise ValueError(msg)
+        return self
+
+    @property
+    def sheets_configured(self) -> bool:
+        """True when both Google Sheets credentials are present."""
+        return bool(self.google_sheet_id and self.google_service_account_json)
 
 
 @lru_cache

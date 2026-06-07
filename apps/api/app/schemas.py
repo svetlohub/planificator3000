@@ -4,6 +4,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain import Task, TeamMember
+
 PlanStatus = Literal["draft", "active", "completed"]
 
 
@@ -20,3 +22,13 @@ class Plan(BaseModel):
     title: str = Field(min_length=1, max_length=140)
     status: PlanStatus = "draft"
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CurrentPlanResponse(BaseModel):
+    """Response body for GET /api/v1/plans/current."""
+
+    model_config = ConfigDict(frozen=True)
+
+    tasks: list[Task]
+    team: list[TeamMember]
+    sheets_configured: bool
