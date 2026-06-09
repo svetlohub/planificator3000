@@ -1,6 +1,9 @@
 {
-  "extends": "@planner3000/config/typescript/react-library",
+  "extends": "../config/typescript/base.json",
   "compilerOptions": {
+    "outDir": "dist",
     "rootDir": "src"
-  }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["dist", "node_modules"]
 }

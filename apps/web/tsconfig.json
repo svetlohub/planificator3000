@@ -1,11 +1,19 @@
 {
-  "extends": "@planner3000/config/typescript/next",
+  "extends": "../../packages/config/typescript/next.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "@planner3000/ui": ["../../packages/ui/src"],
-      "@planner3000/shared": ["../../packages/shared/src"]
-    }
-  }
+      "@planner3000/shared": ["../../packages/shared/src/index.ts"],
+      "@planner3000/ui": ["../../packages/ui/src/index.ts"],
+      "@planner3000/ui/*": ["../../packages/ui/src/*"]
+    },
+    "plugins": [{ "name": "next" }]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
 }

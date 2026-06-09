@@ -19,7 +19,7 @@ from app.exception_handlers import (
     sheets_error_handler,
     worksheet_not_found_handler,
 )
-from app.routers import health, plans
+from app.routers import health, plans, smoke
 
 
 @asynccontextmanager
@@ -81,6 +81,7 @@ def create_app() -> FastAPI:
 
     # --------------------------------------------------------------- Routers
     app.include_router(health.router, prefix=settings.api_prefix)
+    app.include_router(smoke.router, prefix=settings.api_prefix)
     app.include_router(plans.router, prefix=settings.api_prefix)
 
     return app
