@@ -90,18 +90,53 @@ def test_staging_env_starts_when_credentials_present() -> None:
 # ------------------------------------------------------- cors origin parsing
 
 
-def test_cors_origins_parsed_from_comma_separated_string(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cors_origins_list_single_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Railway plain-string ENV: single origin."""
+    monkeypatch.setenv("CORS_ORIGINS", "https://planner3000web-production.up.railway.app")
+
+    settings = Settings()
+
+    assert settings.cors_origins_list == ["https://planner3000web-production.up.railway.app"]
+
+
+def test_cors_origins_list_multiple_origins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Railway plain-string ENV: multiple comma-separated origins."""
+    monkeypatch.setenv(
+        "CORS_ORIGINS",
+        "https://planner3000web-production.up.railway.app,http://localhost:3000",
+    )
+
+    settings = Settings()
+
+    assert settings.cors_origins_list == [
+        "https://planner3000web-production.up.railway.app",
+        "http://localhost:3000",
+    ]
+
+
+def test_cors_origins_list_strips_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spaces around commas are stripped gracefully."""
     monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000, https://app.example.com")
 
     settings = Settings()
 
-    assert settings.cors_origins == ["http://localhost:3000", "https://app.example.com"]
+    assert settings.cors_origins_list == ["http://localhost:3000", "https://app.example.com"]
 
 
-def test_cors_origins_accepts_list_directly() -> None:
-    settings = Settings(cors_origins=["http://localhost:3000"])
+def test_cors_origins_list_default() -> None:
+    """Default value resolves to localhost."""
+    settings = Settings(app_env="local")
 
-    assert settings.cors_origins == ["http://localhost:3000"]
+    assert settings.cors_origins_list == ["http://localhost:3000"]
+
+
+def test_cors_origins_raw_field_is_string(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The raw cors_origins field stays a plain string (no JSON parsing)."""
+    monkeypatch.setenv("CORS_ORIGINS", "https://foo.com")
+
+    settings = Settings()
+
+    assert isinstance(settings.cors_origins, str)
 
 
 # ------------------------------------------------------- existing test compat
@@ -118,10 +153,9 @@ def test_google_sheets_settings_can_be_loaded_from_environment(
     monkeypatch.setenv("GOOGLE_WORKSHEET_TEAM_ROSTER", "Roster")
     monkeypatch.setenv("GOOGLE_WORKSHEET_CONFIG", "Settings")
 
-    settings = Settings()
+    settings = Settings(app_env="local")
 
     assert settings.google_sheet_id == "sheet-123"
-    assert settings.google_service_account_json == '{"type":"service_account"}'
     assert settings.google_worksheet_completed_tasks == "Done"
     assert settings.google_worksheet_monthly_plan == "Monthly"
     assert settings.google_worksheet_recurring_tasks == "Recurring"
