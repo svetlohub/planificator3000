@@ -1,163 +1,200 @@
+/* global navigator */
 "use client";
 
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 
+type TaskStatus = "done" | "progress" | "planned" | "backlog";
+
 type ParsedTask = {
   title: string;
   date?: string;
   owner?: string;
-  status: "done" | "progress" | "planned" | "backlog";
+  status: TaskStatus;
   estimate: number;
 };
 
-const demoText = `Completed Tasks
-- 2026-06-03 Paulo - Internet Marketing Report - done - 4h
-- 2026-06-04 Ana - Social Media Release Announcement - done - 3h
-- 2026-06-06 Lucas - Google Ads Operations - progress - 6h
+const placeholder = `Пример:
+2026-06-03 анализ статей блога за второе полугодие 2025
+обновление данных по рейтингам за январь
+написание статей Alternatives в новом формате
+поиск новых упоминаний бренда по региону
+публикации в Linkedin
+Reels / Shorts
+готово: еженедельный отчет
+в работе: исследование конкурентов
+бэклог: обновление старых Alternatives`;
 
-New Week
-- 2026-06-10 Paulo - Monthly Report June 2026 - planned - 5h
-- 2026-06-11 Marina - PR outreach list - planned - 4h
-- 2026-06-12 Ana - Social Media Report - planned - 3h
-- 2026-06-13 Lucas - Campaign optimization - planned - 6h
+function detectStatus(line: string, section: TaskStatus): TaskStatus {
+  const lower = line.toLowerCase();
 
-Backlog
-- Partnership landing update
-- Customer story refresh`;
+  if (lower.includes("готово") || lower.includes("сделано") || lower.includes("done") || lower.includes("completed")) {
+    return "done";
+  }
+
+  if (lower.includes("в работе") || lower.includes("делаю") || lower.includes("progress") || lower.includes("doing")) {
+    return "progress";
+  }
+
+  if (lower.includes("бэклог") || lower.includes("backlog") || lower.includes("потом") || lower.includes("отлож")) {
+    return "backlog";
+  }
+
+  return section;
+}
+
+function cleanTitle(line: string): string {
+  return line
+    .replace(/^[-*•]\s*/, "")
+    .replace(/^\d+\.\s*/, "")
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, "")
+    .replace(/\b\d+(?:\.\d+)?\s*(h|ч|час|часа|часов)\b/gi, "")
+    .replace(/^(готово|сделано|в работе|бэклог|план|задача)\s*[:—-]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function parseTasks(raw: string): ParsedTask[] {
+  let currentSection: TaskStatus = "planned";
+
   return raw
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("-") || line.startsWith("*"))
-    .map((line) => {
-      const clean = line.replace(/^[-*]\s*/, "");
-      const estimateMatch = clean.match(/(\d+(?:\.\d+)?)\s*h/i);
-      const dateMatch = clean.match(/\d{4}-\d{2}-\d{2}/);
-      const lower = clean.toLowerCase();
+    .filter(Boolean)
+    .flatMap((line) => {
+      const lower = line.toLowerCase();
 
-      const status =
-        lower.includes("done") || lower.includes("completed")
-          ? "done"
-          : lower.includes("progress") || lower.includes("doing")
-            ? "progress"
-            : lower.includes("backlog") || lower.includes("deferred")
-              ? "backlog"
-              : "planned";
+      if (["готово", "сделано", "прошлая неделя", "previous week", "completed tasks"].some((word) => lower.includes(word)) && line.length < 35) {
+        currentSection = "done";
+        return [];
+      }
 
-      const parts = clean.split(" - ").map((part) => part.trim());
+      if (["новая неделя", "план", "next week", "new week"].some((word) => lower.includes(word)) && line.length < 35) {
+        currentSection = "planned";
+        return [];
+      }
 
-      return {
-        title: parts.at(-2)?.match(/\d+h/i) ? parts.at(-3) || clean : parts.at(-2) || parts.at(-1) || clean,
-        date: dateMatch?.[0],
-        owner: parts.length >= 3 ? parts[1] : undefined,
-        status,
-        estimate: estimateMatch ? Number(estimateMatch[1]) : 2,
-      };
+      if (["бэклог", "backlog", "отложено"].some((word) => lower.includes(word)) && line.length < 35) {
+        currentSection = "backlog";
+        return [];
+      }
+
+      const date = line.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+      const estimateMatch = line.match(/(\d+(?:\.\d+)?)\s*(h|ч|час|часа|часов)/i);
+      const title = cleanTitle(line);
+
+      if (!title || title.length < 3) {
+        return [];
+      }
+
+      return [
+        {
+          title,
+          date,
+          status: detectStatus(line, currentSection),
+          estimate: estimateMatch ? Number(estimateMatch[1]) : 2,
+        },
+      ];
     });
 }
 
-function groupByStatus(tasks: ParsedTask[], status: ParsedTask["status"]) {
+function byStatus(tasks: ParsedTask[], status: TaskStatus) {
   return tasks.filter((task) => task.status === status);
 }
 
 export default function HomePage() {
-  const [raw, setRaw] = useState(demoText);
+  const [raw, setRaw] = useState("");
 
   const tasks = useMemo(() => parseTasks(raw), [raw]);
-  const done = groupByStatus(tasks, "done");
-  const progress = groupByStatus(tasks, "progress");
-  const planned = groupByStatus(tasks, "planned");
-  const backlog = groupByStatus(tasks, "backlog");
+  const done = byStatus(tasks, "done");
+  const progress = byStatus(tasks, "progress");
+  const planned = byStatus(tasks, "planned");
+  const backlog = byStatus(tasks, "backlog");
 
   const plannedHours = planned.reduce((sum, task) => sum + task.estimate, 0);
-  const completedHours = done.reduce((sum, task) => sum + task.estimate, 0);
+  const doneHours = done.reduce((sum, task) => sum + task.estimate, 0);
 
   return (
     <main className="min-h-screen bg-[#F1F5F9] text-[#0F172A]">
       <section className="mx-auto max-w-7xl px-5 py-6">
-        <header className="mb-6 flex flex-col gap-4 rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
-          <div>
+        <header className="mb-6 rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3">
-              <div className="grid size-10 place-items-center rounded-[10px] bg-[#84CC16] font-black text-white">
-                P
-              </div>
+              <div className="grid size-10 place-items-center rounded-[10px] bg-[#84CC16] font-black text-white">П</div>
               <div>
-                <p className="font-syne text-[19px] font-extrabold tracking-[-.02em]">PLANIFICATOR-3000</p>
-                <p className="text-xs font-medium text-slate-500">Weekly planning assistant</p>
+                <p className="text-[19px] font-extrabold tracking-[-.02em]">ПЛАНИФИКАТОР-3000</p>
+                <p className="text-xs font-medium text-slate-500">Простой помощник для недельного планирования</p>
               </div>
             </div>
-          </div>
 
-          <div className="flex flex-wrap gap-2 text-[11px] font-bold">
-            <span className="rounded-full bg-[#7C3AED]/10 px-3 py-2 text-[#7C3AED]">Care: structured plan</span>
-            <span className="rounded-full bg-[#84CC16]/15 px-3 py-2 text-[#3F6212]">Energy: execution</span>
-            <span className="rounded-full bg-[#F97316]/10 px-3 py-2 text-[#C2410C]">Optimism: next week</span>
+            <div className="flex flex-wrap gap-2 text-[11px] font-bold">
+              <span className="rounded-full bg-[#7C3AED]/10 px-3 py-2 text-[#7C3AED]">Порядок в задачах</span>
+              <span className="rounded-full bg-[#84CC16]/15 px-3 py-2 text-[#3F6212]">Фокус на работе</span>
+              <span className="rounded-full bg-[#F97316]/10 px-3 py-2 text-[#C2410C]">План без хаоса</span>
+            </div>
           </div>
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
           <section className="rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-sm">
-            <div className="mb-4">
-              <p className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">Step 1</p>
-              <h1 className="font-syne text-[34px] font-extrabold tracking-[-.02em]">Paste raw work data</h1>
-              <p className="mt-2 text-[13px] leading-6 text-slate-500">
-                Вставь задачи в любом простом виде: строки, даты, имена, статусы, часы. Планировщик распознает всё локально.
-              </p>
-            </div>
+            <p className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">Шаг 1</p>
+            <h1 className="mt-1 text-[34px] font-extrabold tracking-[-.02em]">Вставь список задач</h1>
+            <p className="mt-2 text-[13px] leading-6 text-slate-500">
+              Можно вставить обычный текст: задачи, даты, статусы, часы. Система сама соберёт понятный отчёт и план.
+            </p>
 
             <textarea
               value={raw}
               onChange={(event) => setRaw(event.target.value)}
-              className="min-h-[520px] w-full resize-none rounded-[10px] border border-slate-900/10 bg-slate-50 p-4 font-mono text-[12px] leading-6 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+              placeholder={placeholder}
+              className="mt-5 min-h-[520px] w-full resize-none rounded-[10px] border border-slate-900/10 bg-slate-50 p-4 text-[13px] leading-6 outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
             />
 
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => setRaw(demoText)}
-                className="rounded-[10px] bg-[#F97316] px-4 py-3 text-[13px] font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
-              >
-                Load demo
-              </button>
+            <div className="mt-4 flex flex-wrap gap-3">
               <button
                 onClick={() => setRaw("")}
                 className="rounded-[10px] border border-slate-900/10 bg-white px-4 py-3 text-[13px] font-bold transition hover:-translate-y-0.5"
               >
-                Clear
+                Очистить
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(raw)}
+                className="rounded-[10px] bg-[#F97316] px-4 py-3 text-[13px] font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+              >
+                Скопировать исходник
               </button>
             </div>
           </section>
 
           <section className="space-y-5">
-            <div className="rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-sm">
-              <p className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">Step 2</p>
-              <h2 className="font-syne text-[34px] font-extrabold tracking-[-.02em]">Weekly report</h2>
+            <section className="rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-sm">
+              <p className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">Шаг 2</p>
+              <h2 className="mt-1 text-[34px] font-extrabold tracking-[-.02em]">Отчёт и план</h2>
 
               <div className="mt-5 grid gap-3 md:grid-cols-4">
-                <Metric label="Tasks parsed" value={tasks.length} tone="violet" />
-                <Metric label="Completed" value={done.length} tone="lime" />
-                <Metric label="Planned hours" value={`${plannedHours}h`} tone="orange" />
-                <Metric label="Backlog" value={backlog.length} tone="red" />
+                <Metric label="Найдено задач" value={tasks.length} tone="violet" />
+                <Metric label="Готово" value={done.length} tone="lime" />
+                <Metric label="План, часов" value={`${plannedHours}ч`} tone="orange" />
+                <Metric label="Бэклог" value={backlog.length} tone="red" />
               </div>
-            </div>
+            </section>
 
-            <ReportCard title="Previous Week" subtitle={`${done.length} completed · ${completedHours}h delivered`}>
-              {done.length ? done.map((task) => <TaskRow key={task.title} task={task} />) : <Empty text="No completed tasks detected." />}
+            <ReportCard title="Итоги недели" subtitle={`${done.length} готово · примерно ${doneHours}ч работы`}>
+              {done.length ? done.map((task) => <TaskRow key={task.title} task={task} />) : <Empty text="Пока нет задач со статусом «готово»." />}
               {progress.length ? (
                 <>
-                  <Divider label="In progress" />
+                  <Divider label="В работе" />
                   {progress.map((task) => <TaskRow key={task.title} task={task} />)}
                 </>
               ) : null}
             </ReportCard>
 
-            <ReportCard title="New Week Plan" subtitle={`${planned.length} planned · ${plannedHours}h estimated`}>
-              {planned.length ? planned.map((task) => <TaskRow key={task.title} task={task} />) : <Empty text="No planned tasks detected." />}
+            <ReportCard title="План на следующую неделю" subtitle={`${planned.length} задач · примерно ${plannedHours}ч`}>
+              {planned.length ? planned.map((task) => <TaskRow key={task.title} task={task} />) : <Empty text="Вставь список задач — план появится здесь." />}
             </ReportCard>
 
-            <ReportCard title="Backlog" subtitle={`${backlog.length} deferred tasks`}>
-              {backlog.length ? backlog.map((task) => <TaskRow key={task.title} task={task} />) : <Empty text="No backlog detected." />}
+            <ReportCard title="Отложенные задачи" subtitle={`${backlog.length} задач в бэклоге`}>
+              {backlog.length ? backlog.map((task) => <TaskRow key={task.title} task={task} />) : <Empty text="Отложенных задач не найдено." />}
             </ReportCard>
           </section>
         </div>
@@ -177,7 +214,7 @@ function Metric({ label, value, tone }: { label: string; value: string | number;
   return (
     <div className="rounded-[10px] border border-slate-900/10 bg-white p-4">
       <p className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">{label}</p>
-      <p className={`mt-2 inline-flex rounded-[8px] px-3 py-2 font-syne text-[24px] font-extrabold tracking-[-.02em] ${tones[tone]}`}>
+      <p className={`mt-2 inline-flex rounded-[8px] px-3 py-2 text-[24px] font-extrabold tracking-[-.02em] ${tones[tone]}`}>
         {value}
       </p>
     </div>
@@ -189,10 +226,10 @@ function ReportCard({ title, subtitle, children }: { title: string; subtitle: st
     <section className="rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-syne text-[20px] font-extrabold tracking-[-.02em]">{title}</h3>
+          <h3 className="text-[20px] font-extrabold tracking-[-.02em]">{title}</h3>
           <p className="text-[12px] font-medium text-slate-500">{subtitle}</p>
         </div>
-        <span className="rounded-full bg-[#7C3AED]/10 px-3 py-2 text-[11px] font-bold text-[#7C3AED]">auto-generated</span>
+        <span className="rounded-full bg-[#7C3AED]/10 px-3 py-2 text-[11px] font-bold text-[#7C3AED]">собрано автоматически</span>
       </div>
       <div className="space-y-2">{children}</div>
     </section>
@@ -207,18 +244,24 @@ function TaskRow({ task }: { task: ParsedTask }) {
     backlog: "bg-[#F97316]/10 text-[#C2410C]",
   };
 
+  const labels = {
+    done: "готово",
+    progress: "в работе",
+    planned: "в план",
+    backlog: "бэклог",
+  };
+
   return (
     <div className="rounded-[10px] border border-slate-900/10 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] font-bold">{task.title}</p>
         <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[.7px] ${colors[task.status]}`}>
-          {task.status}
+          {labels[task.status]}
         </span>
       </div>
       <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-medium text-slate-500">
         {task.date ? <span>{task.date}</span> : null}
-        {task.owner ? <span>Owner: {task.owner}</span> : null}
-        <span>{task.estimate}h</span>
+        <span>{task.estimate}ч</span>
       </div>
     </div>
   );
