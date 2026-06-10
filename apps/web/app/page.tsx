@@ -381,18 +381,47 @@ export default function HomePage() {
         return;
       }
 
-      const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`;
-      const response = await fetch(url);
+      const urls = [
+        `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`,
+        `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`,
+      ];
 
-      if (!response.ok) {
-        setSheetStatus("Не удалось открыть таблицу. Нужен доступ: Anyone with the link can view.");
+      let csv = "";
+      let lastError = "";
+
+      for (const url of urls) {
+        const response = await fetch(url);
+        const text = await response.text();
+
+        if (!response.ok) {
+          lastError = `HTTP ${response.status}`;
+          continue;
+        }
+
+        if (text.toLowerCase().includes("<html") || text.toLowerCase().includes("<!doctype")) {
+          lastError = "Google вернул HTML вместо CSV. Проверь доступ к таблице.";
+          continue;
+        }
+
+        csv = text;
+        break;
+      }
+
+      if (!csv) {
+        setSheetStatus(lastError || "Не удалось получить CSV из таблицы.");
         return;
       }
 
-      const csv = await response.text();
       const tasks = parseSheetRows(csv);
 
       setSheetTasks(tasks);
+
+      if (tasks.length === 0) {
+        const preview = csv.slice(0, 180).replace(/\s+/g, " ");
+        setSheetStatus(`0 задач. Проверь вкладку и столбец A. Ответ Google: ${preview}`);
+        return;
+      }
+
       setSheetStatus(`Загружено чистых задач: ${tasks.length}`);
     } catch {
       setSheetStatus("Ошибка загрузки. Проверь доступ к таблице и ссылку на нужную вкладку.");
