@@ -5,14 +5,24 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
-type PersonBlock = {
-  name: string;
-  tasks: string[];
+type TaskItem = {
+  title: string;
+  date?: string;
+  source: "manual" | "sheet" | "routine" | "moved";
 };
 
 const NAME_KEY = "planner3000:name";
 const ROUTINE_KEY = "planner3000:routines";
 const SHEET_KEY = "planner3000:sheetUrl";
+
+const ignoredRows = [
+  "важные незапланированные проекты",
+  "текущие задачи месяца",
+  "задачи от соседних отделов",
+  "задачи от СОСЕДНИХ отделов",
+  "название задачи",
+  "ссылка на задачу",
+];
 
 const quotes = [
   "План нужен не для контроля, а для спокойствия.",
@@ -53,6 +63,7 @@ function addDays(date: Date, days: number) {
 }
 
 function toShortDate(value: string) {
+  if (!value) return "";
   const [, month, day] = value.split("-");
   return `${day}.${month}`;
 }
@@ -65,18 +76,47 @@ function normalizeTask(line: string) {
     .trim();
 }
 
-function dedupe(items: string[]) {
+function isIgnoredRow(value: string) {
+  const clean = normalizeTask(value).toLowerCase();
+  if (!clean) return true;
+  return ignoredRows.some((row) => clean === row.toLowerCase());
+}
+
+function normalizeDate(value: string) {
+  const clean = value.trim();
+  if (!clean) return "";
+
+  const iso = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const ru = clean.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (ru) {
+    const day = ru[1].padStart(2, "0");
+    const month = ru[2].padStart(2, "0");
+    const year = ru[3].length === 2 ? `20${ru[3]}` : ru[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  return "";
+}
+
+function isDateInRange(date: string | undefined, start: string, end: string) {
+  if (!date) return false;
+  return date >= start && date <= end;
+}
+
+function dedupeTasks(items: TaskItem[]) {
   const seen = new Set<string>();
-  const result: string[] = [];
+  const result: TaskItem[] = [];
 
   for (const item of items) {
-    const clean = normalizeTask(item);
-    const key = clean.toLowerCase();
+    const title = normalizeTask(item.title);
+    const key = title.toLowerCase();
 
-    if (!clean || seen.has(key)) continue;
+    if (!title || seen.has(key) || isIgnoredRow(title)) continue;
 
     seen.add(key);
-    result.push(clean);
+    result.push({ ...item, title });
   }
 
   return result;
@@ -94,6 +134,8 @@ function toFutureTask(task: string) {
     [/^сделал\b/i, "сделать"],
     [/^работала над\b/i, "поработать над"],
     [/^работал над\b/i, "поработать над"],
+    [/^работала с\b/i, "поработать с"],
+    [/^работал с\b/i, "поработать с"],
     [/^опубликовала\b/i, "опубликовать"],
     [/^опубликовал\b/i, "опубликовать"],
     [/^выложила\b/i, "выложить"],
@@ -102,8 +144,12 @@ function toFutureTask(task: string) {
     [/^написал\b/i, "написать"],
     [/^подготовила\b/i, "подготовить"],
     [/^подготовил\b/i, "подготовить"],
+    [/^переводила\b/i, "перевести"],
+    [/^переводил\b/i, "перевести"],
     [/^локализовала\b/i, "локализовать"],
     [/^локализовал\b/i, "локализовать"],
+    [/^собрала\b/i, "собрать"],
+    [/^собрал\b/i, "собрать"],
     [/^запустила\b/i, "запустить"],
     [/^запустил\b/i, "запустить"],
   ];
@@ -115,14 +161,15 @@ function toFutureTask(task: string) {
   return task;
 }
 
-function parsePlainTasks(raw: string) {
-  return dedupe(
+function parseManualTasks(raw: string): TaskItem[] {
+  return dedupeTasks(
     raw
       .split("\n")
-      .map((line) => line.trim())
+      .map((line) => normalizeTask(line))
       .filter(Boolean)
       .filter((line) => !/^задач[аи]?:?\s*\d+/i.test(line))
-      .filter((line) => !/^даты:/i.test(line)),
+      .filter((line) => !/^даты:/i.test(line))
+      .map((title) => ({ title, source: "manual" as const })),
   );
 }
 
@@ -134,7 +181,7 @@ function extractGid(url: string) {
   return url.match(/[?&]gid=(\d+)/)?.[1] || "0";
 }
 
-function parseCsvFirstColumn(csv: string) {
+function parseCsv(csv: string) {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -179,17 +226,30 @@ function parseCsvFirstColumn(csv: string) {
     rows.push(row);
   }
 
-  return rows
-    .map((items) => normalizeTask(items[0] || ""))
-    .filter(Boolean)
-    .filter((item) => !/^задач/i.test(item))
-    .filter((item) => !/^task/i.test(item));
+  return rows;
 }
 
-function formatDocument(params: {
+function parseSheetRows(csv: string): TaskItem[] {
+  const rows = parseCsv(csv);
+
+  return dedupeTasks(
+    rows.map((row) => {
+      const title = normalizeTask(row[0] || "");
+      const date = normalizeDate(row[1] || "");
+
+      return {
+        title,
+        date: date || undefined,
+        source: "sheet" as const,
+      };
+    }),
+  );
+}
+
+function formatCopyText(params: {
   name: string;
-  reportTasks: string[];
-  planTasks: string[];
+  reportTasks: TaskItem[];
+  planTasks: TaskItem[];
   reportStart: string;
   reportEnd: string;
   planStart: string;
@@ -197,28 +257,18 @@ function formatDocument(params: {
 }) {
   const { name, reportTasks, planTasks, reportStart, reportEnd, planStart, planEnd } = params;
 
-  const report: PersonBlock = {
-    name,
-    tasks: reportTasks,
-  };
-
-  const plan: PersonBlock = {
-    name,
-    tasks: planTasks,
-  };
-
   return [
     `Неделя с ${toShortDate(reportStart)} по ${toShortDate(reportEnd)}`,
     "",
-    report.name,
-    `Задачи: ${report.tasks.length}`,
-    ...report.tasks.map((task, index) => `${index + 1}. ${task}`),
+    name,
+    `Задачи: ${reportTasks.length}`,
+    ...reportTasks.map((task, index) => `${index + 1}. ${task.title}`),
     "",
     `План на неделю с ${toShortDate(planStart)} по ${toShortDate(planEnd)}`,
     "",
-    plan.name,
-    `Задачи: ${plan.tasks.length}`,
-    ...plan.tasks.map((task, index) => `${index + 1}. ${task}`),
+    name,
+    `Задачи: ${planTasks.length}`,
+    ...planTasks.map((task, index) => `${index + 1}. ${task.title}`),
   ].join("\n").trim();
 }
 
@@ -228,8 +278,9 @@ export default function HomePage() {
   const [name, setName] = useState("Паша");
   const [raw, setRaw] = useState("");
   const [sheetUrl, setSheetUrl] = useState("");
-  const [routines, setRoutines] = useState<string[]>([]);
-  const [manualPlan, setManualPlan] = useState<string[]>([]);
+  const [sheetTasks, setSheetTasks] = useState<TaskItem[]>([]);
+  const [routines, setRoutines] = useState<TaskItem[]>([]);
+  const [movedTasks, setMovedTasks] = useState<TaskItem[]>([]);
   const [copied, setCopied] = useState(false);
   const [sheetStatus, setSheetStatus] = useState("");
 
@@ -241,23 +292,53 @@ export default function HomePage() {
   useEffect(() => {
     setName(window.localStorage.getItem(NAME_KEY) || "Паша");
     setSheetUrl(window.localStorage.getItem(SHEET_KEY) || "");
-    setRoutines((window.localStorage.getItem(ROUTINE_KEY) || "").split("\n").map(normalizeTask).filter(Boolean));
+
+    const savedRoutines = window.localStorage.getItem(ROUTINE_KEY) || "";
+    setRoutines(
+      savedRoutines
+        .split("\n")
+        .map((title) => normalizeTask(title))
+        .filter(Boolean)
+        .map((title) => ({ title, source: "routine" as const })),
+    );
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem(NAME_KEY, name);
   }, [name]);
 
-  const reportTasks = useMemo(() => parsePlainTasks(raw), [raw]);
+  const manualTasks = useMemo(() => parseManualTasks(raw), [raw]);
+  const allSourceTasks = useMemo(() => dedupeTasks([...manualTasks, ...sheetTasks]), [manualTasks, sheetTasks]);
+
+  const reportTasks = useMemo(() => {
+    const withDates = allSourceTasks.filter((task) => task.date);
+    const withoutDates = allSourceTasks.filter((task) => !task.date);
+
+    const datedReport = withDates.filter((task) => isDateInRange(task.date, reportStart, reportEnd));
+
+    return dedupeTasks([...datedReport, ...withoutDates]);
+  }, [allSourceTasks, reportStart, reportEnd]);
 
   const planTasks = useMemo(() => {
-    const source = manualPlan.length ? manualPlan : reportTasks.map(toFutureTask);
-    return dedupe([...source, ...routines]);
-  }, [manualPlan, reportTasks, routines]);
+    const sheetPlan = allSourceTasks
+      .filter((task) => task.date)
+      .filter((task) => isDateInRange(task.date, planStart, planEnd))
+      .map((task) => ({ ...task, title: toFutureTask(task.title) }));
 
-  const output = useMemo(
+    const autoPlan = movedTasks.length
+      ? movedTasks
+      : reportTasks.map((task) => ({
+          ...task,
+          title: toFutureTask(task.title),
+          source: "moved" as const,
+        }));
+
+    return dedupeTasks([...sheetPlan, ...autoPlan, ...routines]);
+  }, [allSourceTasks, movedTasks, reportTasks, routines, planStart, planEnd]);
+
+  const copyText = useMemo(
     () =>
-      formatDocument({
+      formatCopyText({
         name,
         reportTasks,
         planTasks,
@@ -272,13 +353,22 @@ export default function HomePage() {
   const quote = quotes[new Date().getDate() % quotes.length];
 
   async function copyOutput() {
-    await navigator.clipboard.writeText(output);
+    await navigator.clipboard.writeText(copyText);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
 
-  function moveToPlan(task: string) {
-    setManualPlan((current) => dedupe([...current, toFutureTask(task)]));
+  function moveToPlan(task: TaskItem) {
+    setMovedTasks((current) =>
+      dedupeTasks([
+        ...current,
+        {
+          ...task,
+          title: toFutureTask(task.title),
+          source: "moved",
+        },
+      ]),
+    );
   }
 
   async function loadFromGoogleSheets() {
@@ -297,17 +387,17 @@ export default function HomePage() {
       const response = await fetch(url);
 
       if (!response.ok) {
-        setSheetStatus("Не удалось открыть таблицу. Сделай доступ «Anyone with the link can view».");
+        setSheetStatus("Не удалось открыть таблицу. Нужен доступ: Anyone with the link can view.");
         return;
       }
 
       const csv = await response.text();
-      const tasks = parseCsvFirstColumn(csv);
+      const tasks = parseSheetRows(csv);
 
-      setRaw(tasks.join("\n"));
-      setSheetStatus(`Загружено задач из столбика A: ${tasks.length}`);
+      setSheetTasks(tasks);
+      setSheetStatus(`Загружено из вкладки: ${tasks.length} задач`);
     } catch {
-      setSheetStatus("Ошибка загрузки. Для демо таблица должна быть доступна по ссылке.");
+      setSheetStatus("Ошибка загрузки. Проверь доступ к таблице и ссылку на нужную вкладку.");
     }
   }
 
@@ -351,7 +441,7 @@ export default function HomePage() {
 
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[.96fr_1.04fr]">
           <section className="flex min-h-0 flex-col rounded-[14px] border border-slate-900/10 bg-white/90 p-4 shadow-[0_18px_80px_rgba(15,23,42,.08)] backdrop-blur transition duration-150 hover:shadow-[0_22px_90px_rgba(124,58,237,.12)]">
-            <div className="mb-3 grid gap-3 md:grid-cols-[1fr_1.2fr]">
+            <div className="mb-3 grid gap-3 md:grid-cols-[1fr_1.4fr]">
               <Field label="Имя">
                 <input value={name} onChange={(event) => setName(event.target.value)} className="input" />
               </Field>
@@ -374,42 +464,17 @@ export default function HomePage() {
             <textarea
               value={raw}
               onChange={(event) => setRaw(event.target.value)}
-              placeholder="Вставь сюда черновик из чата или загрузи задачи из Google Sheets. Каждая строка — отдельная задача."
-              className="h-[190px] resize-none rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-4 text-[13px] leading-6 outline-none transition duration-150 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+              placeholder="Можно вставить черновик вручную. Если загружаешь таблицу: берём столбец A, дату из столбца B, ссылки из C игнорируем."
+              className="h-[145px] resize-none rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-4 text-[13px] leading-6 outline-none transition duration-150 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
             />
 
-            <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-[14px] border border-slate-900/10 bg-[#F8FAFC]">
-              {reportTasks.length ? (
-                <table className="w-full text-left text-[12px]">
-                  <tbody>
-                    {reportTasks.map((task, index) => (
-                      <tr key={`${task}-${index}`} className="border-b border-slate-900/5 transition hover:bg-white">
-                        <td className="w-8 px-3 py-2 font-bold text-slate-400">{index + 1}</td>
-                        <td className="px-2 py-2 font-semibold text-slate-700">{task}</td>
-                        <td className="w-12 px-3 py-2 text-right">
-                          <button
-                            onClick={() => moveToPlan(task)}
-                            title="Перенести в план"
-                            className="rounded-[8px] bg-[#7C3AED]/10 px-2 py-1 font-black text-[#7C3AED] transition hover:-translate-y-0.5 hover:bg-[#7C3AED] hover:text-white hover:shadow-[0_10px_30px_rgba(124,58,237,.25)]"
-                          >
-                            →
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="p-4 text-[13px] font-medium text-slate-400">Пока нет задач.</div>
-              )}
-            </div>
-
-            <div className="mt-3 flex items-center justify-between">
-              <span className="rounded-full bg-[#7C3AED]/10 px-3 py-2 text-[11px] font-bold text-[#7C3AED]">
-                Найдено: {reportTasks.length} задач
-              </span>
-              <button onClick={() => setRaw("")} className="btn-secondary">Очистить</button>
-            </div>
+            <TaskPanel
+              title="Отчёт за неделю"
+              subtitle={`Задачи: ${reportTasks.length}`}
+              tasks={reportTasks}
+              actionLabel="→"
+              onAction={moveToPlan}
+            />
           </section>
 
           <section className="flex min-h-0 flex-col rounded-[14px] border border-slate-900/10 bg-white/90 p-4 shadow-[0_18px_80px_rgba(15,23,42,.08)] backdrop-blur transition duration-150 hover:shadow-[0_22px_90px_rgba(132,204,22,.14)]">
@@ -426,9 +491,18 @@ export default function HomePage() {
               </div>
             </div>
 
-            <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-5 text-[13px] leading-6 text-slate-900 shadow-inner">
-              {output}
-            </pre>
+            <TaskPanel
+              title="План на неделю"
+              subtitle={`Задачи: ${planTasks.length}`}
+              tasks={planTasks}
+            />
+
+            <details className="mt-3 rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-3">
+              <summary className="cursor-pointer text-[12px] font-bold text-slate-500">Текст для копирования</summary>
+              <pre className="mt-3 max-h-[170px] overflow-auto whitespace-pre-wrap rounded-[10px] bg-white p-3 text-[12px] leading-5 text-slate-700">
+                {copyText}
+              </pre>
+            </details>
           </section>
         </div>
 
@@ -451,7 +525,7 @@ export default function HomePage() {
         }
 
         .date-input {
-          min-width: 132px;
+          min-width: 140px;
         }
 
         .input:focus {
@@ -501,6 +575,68 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="mb-1 block text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">{label}</span>
       {children}
     </label>
+  );
+}
+
+function TaskPanel({
+  title,
+  subtitle,
+  tasks,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  subtitle: string;
+  tasks: TaskItem[];
+  actionLabel?: string;
+  onAction?: (task: TaskItem) => void;
+}) {
+  return (
+    <section className="mt-3 min-h-0 flex-1 overflow-hidden rounded-[14px] border border-slate-900/10 bg-[#F8FAFC]">
+      <div className="flex items-center justify-between border-b border-slate-900/10 bg-white px-4 py-3">
+        <div>
+          <div className="text-[14px] font-black tracking-[-.02em]">{title}</div>
+          <div className="text-[11px] font-bold text-slate-400">{subtitle}</div>
+        </div>
+      </div>
+
+      <ol className="h-full max-h-[360px] space-y-2 overflow-auto p-3">
+        {tasks.length ? (
+          tasks.map((task, index) => (
+            <li
+              key={`${task.title}-${index}`}
+              className="group flex items-start gap-3 rounded-[10px] border border-slate-900/10 bg-white p-3 shadow-sm transition duration-150 hover:-translate-y-0.5 hover:border-[#7C3AED]/20 hover:shadow-[0_14px_45px_rgba(124,58,237,.14)]"
+            >
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[#7C3AED]/10 text-[11px] font-black text-[#7C3AED]">
+                {index + 1}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-bold leading-5 text-slate-800">{task.title}</div>
+                {task.date ? (
+                  <div className="mt-1 text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">
+                    дата: {task.date}
+                  </div>
+                ) : null}
+              </div>
+
+              {onAction && actionLabel ? (
+                <button
+                  onClick={() => onAction(task)}
+                  className="rounded-[8px] bg-[#84CC16]/15 px-2 py-1 text-[13px] font-black text-[#3F6212] transition hover:-translate-y-0.5 hover:bg-[#84CC16] hover:text-white hover:shadow-[0_10px_30px_rgba(132,204,22,.25)]"
+                >
+                  {actionLabel}
+                </button>
+              ) : null}
+            </li>
+          ))
+        ) : (
+          <li className="rounded-[10px] border border-dashed border-slate-900/10 bg-white p-4 text-[13px] font-medium text-slate-400">
+            Пока нет задач.
+          </li>
+        )}
+      </ol>
+    </section>
   );
 }
 
