@@ -62,6 +62,14 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
+function startOfWeekMonday(date: Date) {
+  const current = new Date(date);
+  const day = current.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  current.setDate(current.getDate() + diff);
+  return current;
+}
+
 function toShortDate(value: string) {
   if (!value) return "";
   const [, month, day] = value.split("-");
@@ -301,13 +309,20 @@ export default function HomePage() {
   const [sheetTasks, setSheetTasks] = useState<TaskItem[]>([]);
   const [routines, setRoutines] = useState<TaskItem[]>([]);
   const [movedTasks, setMovedTasks] = useState<TaskItem[]>([]);
+  const [manualPlanInput, setManualPlanInput] = useState("");
+  const [showManualPlanInput, setShowManualPlanInput] = useState(false);
   const [copied, setCopied] = useState(false);
   const [sheetStatus, setSheetStatus] = useState("Подключи таблицу в настройках и нажми загрузку.");
 
-  const [reportStart, setReportStart] = useState(addDays(baseDate, -7).toISOString().slice(0, 10));
-  const [reportEnd, setReportEnd] = useState(addDays(baseDate, -3).toISOString().slice(0, 10));
-  const [planStart, setPlanStart] = useState(todayIso());
-  const [planEnd, setPlanEnd] = useState(addDays(baseDate, 3).toISOString().slice(0, 10));
+  const currentMonday = useMemo(() => startOfWeekMonday(baseDate), [baseDate]);
+  const previousMonday = useMemo(() => addDays(currentMonday, -7), [currentMonday]);
+  const previousFriday = useMemo(() => addDays(previousMonday, 4), [previousMonday]);
+  const currentFriday = useMemo(() => addDays(currentMonday, 4), [currentMonday]);
+
+  const [reportStart, setReportStart] = useState(previousMonday.toISOString().slice(0, 10));
+  const [reportEnd, setReportEnd] = useState(previousFriday.toISOString().slice(0, 10));
+  const [planStart, setPlanStart] = useState(currentMonday.toISOString().slice(0, 10));
+  const [planEnd, setPlanEnd] = useState(currentFriday.toISOString().slice(0, 10));
 
   useEffect(() => {
     setName(window.localStorage.getItem(NAME_KEY) || "Паша");
@@ -382,6 +397,25 @@ export default function HomePage() {
     );
   }
 
+  function addManualPlanTask() {
+    const title = normalizeText(manualPlanInput);
+
+    if (!title) return;
+
+    setMovedTasks((current) =>
+      dedupeTasks([
+        ...current,
+        {
+          title,
+          source: "moved",
+        },
+      ]),
+    );
+
+    setManualPlanInput("");
+    setShowManualPlanInput(false);
+  }
+
   async function loadFromGoogleSheets() {
     setSheetStatus("Загружаю таблицу...");
 
@@ -452,7 +486,7 @@ export default function HomePage() {
       ) : null}
 
       <section className="relative mx-auto flex h-screen max-w-7xl flex-col px-5 py-4">
-        <header className="mb-3 flex h-[54px] items-center justify-between">
+        <header className="mb-3 grid gap-3 lg:grid-cols-[1fr_auto]">
           <div className="group flex items-center gap-3">
             <div className="grid size-11 place-items-center rounded-[14px] bg-[#F97316] shadow-[0_10px_30px_rgba(249,115,22,.28)] transition duration-150 group-hover:-translate-y-0.5 group-hover:shadow-[0_16px_45px_rgba(249,115,22,.38)]">
               <span className="font-serif text-[30px] font-black leading-none text-[#B6FF2E] drop-shadow-[0_0_8px_rgba(182,255,46,.45)]">П</span>
@@ -463,21 +497,21 @@ export default function HomePage() {
             </div>
           </div>
 
-          <Link
-            href="/settings"
-            aria-label="Настройки"
-            className="grid size-11 place-items-center rounded-[14px] border border-slate-900/10 bg-white text-[20px] shadow-sm transition duration-150 hover:-translate-y-0.5 hover:border-[#7C3AED]/30 hover:shadow-[0_14px_45px_rgba(124,58,237,.18)]"
-          >
-            ⚙
-          </Link>
-        </header>
+          <div className="flex items-center gap-2">
+            <Metric label="Неделя" value={reportTasks.length} tone="lime" compact />
+            <Metric label="Месяц" value={reportTasks.length * 4} tone="violet" compact />
+            <Metric label="2 месяца" value={reportTasks.length * 8} tone="orange" compact />
+            <Metric label="План" value={planTasks.length} tone="sky" compact />
 
-        <div className="mb-3 grid gap-3 md:grid-cols-4">
-          <Metric label="Сделано за неделю" value={reportTasks.length} tone="lime" />
-          <Metric label="Сделано за месяц" value={reportTasks.length * 4} tone="violet" />
-          <Metric label="Сделано за 2 месяца" value={reportTasks.length * 8} tone="orange" />
-          <Metric label="План на неделю" value={planTasks.length} tone="sky" />
-        </div>
+            <Link
+              href="/settings"
+              aria-label="Настройки"
+              className="grid size-11 place-items-center rounded-[14px] border border-slate-900/10 bg-white text-[20px] shadow-sm transition duration-150 hover:-translate-y-0.5 hover:border-[#7C3AED]/30 hover:shadow-[0_14px_45px_rgba(124,58,237,.18)]"
+            >
+              ⚙
+            </Link>
+          </div>
+        </header>
 
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
           <section className="flex min-h-0 flex-col rounded-[14px] border border-slate-900/10 bg-white/90 p-4 shadow-[0_18px_80px_rgba(15,23,42,.08)] backdrop-blur transition duration-150 hover:shadow-[0_22px_90px_rgba(124,58,237,.12)]">
@@ -492,6 +526,15 @@ export default function HomePage() {
                   <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} className="input date-input" />
                 </div>
               </Field>
+            </div>
+
+            <div className="mb-3 rounded-[14px] border border-[#7C3AED]/10 bg-white/80 p-3 shadow-sm">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[.7px] text-[#7C3AED]">Как подключить таблицу</div>
+              <div className="space-y-1 text-[12px] font-medium leading-5 text-slate-600">
+                <p>1. Открой нужную вкладку месяца и скопируй ссылку именно из адресной строки браузера, не Share link.</p>
+                <p>2. В столбце A — название задачи. В столбце B — дата создания задачи.</p>
+                <p>3. Начиная с B3 протяни формулу вниз: <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">=IF(A3&lt;&gt;&quot;&quot;; IF(B3&lt;&gt;&quot;&quot;; B3; TODAY()); &quot;&quot;)</code></p>
+              </div>
             </div>
 
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -528,14 +571,29 @@ export default function HomePage() {
               title="План на неделю"
               subtitle={`Неделя с ${toShortDate(planStart)} по ${toShortDate(planEnd)} · задач: ${planTasks.length}`}
               tasks={planTasks}
+              showDates={false}
             />
 
-            <details className="mt-3 rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-3">
-              <summary className="cursor-pointer text-[12px] font-bold text-slate-500">Текст для копирования</summary>
-              <pre className="mt-3 max-h-[150px] overflow-auto whitespace-pre-wrap rounded-[10px] bg-white p-3 text-[12px] leading-5 text-slate-700">
-                {copyText}
-              </pre>
-            </details>
+            <div className="mt-3 rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-3">
+              {showManualPlanInput ? (
+                <div className="flex gap-2">
+                  <input
+                    value={manualPlanInput}
+                    onChange={(event) => setManualPlanInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") addManualPlanTask();
+                    }}
+                    placeholder="Новая задача в план"
+                    className="input"
+                  />
+                  <button onClick={addManualPlanTask} className="btn-primary">Добавить</button>
+                </div>
+              ) : (
+                <button onClick={() => setShowManualPlanInput(true)} className="btn-secondary">
+                  Добавить задачу вручную
+                </button>
+              )}
+            </div>
           </section>
         </div>
 
@@ -617,12 +675,14 @@ function TaskPanel({
   tasks,
   actionLabel,
   onAction,
+  showDates = true,
 }: {
   title: string;
   subtitle: string;
   tasks: TaskItem[];
   actionLabel?: string;
   onAction?: (task: TaskItem) => void;
+  showDates?: boolean;
 }) {
   return (
     <section className="min-h-0 flex-1 overflow-hidden rounded-[14px] border border-slate-900/10 bg-[#F8FAFC]">
@@ -646,7 +706,7 @@ function TaskPanel({
 
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-bold leading-5 text-slate-800">{task.title}</div>
-                {task.date ? (
+                {showDates && task.date ? (
                   <div className="mt-1 text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">
                     дата: {task.date}
                   </div>
@@ -673,7 +733,17 @@ function TaskPanel({
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone: "lime" | "violet" | "orange" | "sky" }) {
+function Metric({
+  label,
+  value,
+  tone,
+  compact = false,
+}: {
+  label: string;
+  value: number;
+  tone: "lime" | "violet" | "orange" | "sky";
+  compact?: boolean;
+}) {
   const tones = {
     lime: "bg-[#84CC16]/15 text-[#3F6212] shadow-[0_12px_40px_rgba(132,204,22,.16)]",
     violet: "bg-[#7C3AED]/10 text-[#7C3AED] shadow-[0_12px_40px_rgba(124,58,237,.14)]",
@@ -682,10 +752,12 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: "l
   };
 
   return (
-    <div className="rounded-[14px] border border-slate-900/10 bg-white p-3 transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_60px_rgba(15,23,42,.12)]">
-      <div className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">{label}</div>
-      <div className={`mt-1 inline-flex rounded-[8px] px-3 py-1 text-[24px] font-black tracking-[-.02em] ${tones[tone]}`}>
-        {value}
+    <div className={`${compact ? "grid size-16 place-items-center p-2 text-center" : "p-3"} rounded-[14px] border border-slate-900/10 bg-white transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_60px_rgba(15,23,42,.12)]`}>
+      <div>
+        <div className={`${compact ? "text-[9px]" : "text-[10px]"} font-bold uppercase tracking-[.7px] text-slate-400`}>{label}</div>
+        <div className={`${compact ? "mt-1 text-[20px]" : "mt-1 text-[24px]"} inline-flex rounded-[8px] px-2 py-0.5 font-black tracking-[-.02em] ${tones[tone]}`}>
+          {value}
+        </div>
       </div>
     </div>
   );
