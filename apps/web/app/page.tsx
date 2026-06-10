@@ -72,8 +72,8 @@ function startOfWeekMonday(date: Date) {
 
 function toShortDate(value: string) {
   if (!value) return "";
-  const [, month, day] = value.split("-");
-  return `${day}.${month}`;
+  const [year, month, day] = value.split("-");
+  return `${day}.${month}.${year}`;
 }
 
 function normalizeText(value: string) {
