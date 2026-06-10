@@ -1,4 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="16" fill="#F97316"/>
-  <text x="32" y="43" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" font-weight="900" fill="#84CC16">П</text>
+  <defs>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#F97316"/>
+  <path d="M18 48V16h29v32h-8V23H26v25z" fill="#B6FF2E" filter="url(#glow)"/>
 </svg>
