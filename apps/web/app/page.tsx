@@ -348,7 +348,17 @@ export default function HomePage() {
 
     const periodTasks = dated.filter((task) => isDateInRange(task.date, reportStart, reportEnd));
 
-    if (dated.length > 0) return dedupeTasks(periodTasks);
+    if (periodTasks.length > 0) return dedupeTasks(periodTasks);
+
+    if (dated.length > 0) {
+      const latestDate = dated
+        .map((task) => task.date)
+        .filter(Boolean)
+        .sort()
+        .at(-1);
+
+      return dedupeTasks(dated.filter((task) => task.date === latestDate));
+    }
 
     return dedupeTasks(undated);
   }, [sheetTasks, reportStart, reportEnd]);
@@ -526,15 +536,6 @@ export default function HomePage() {
                   <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} className="input date-input" />
                 </div>
               </Field>
-            </div>
-
-            <div className="mb-3 rounded-[14px] border border-[#7C3AED]/10 bg-white/80 p-3 shadow-sm">
-              <div className="mb-2 text-[11px] font-bold uppercase tracking-[.7px] text-[#7C3AED]">Как подключить таблицу</div>
-              <div className="space-y-1 text-[12px] font-medium leading-5 text-slate-600">
-                <p>1. Открой нужную вкладку месяца и скопируй ссылку именно из адресной строки браузера, не Share link.</p>
-                <p>2. В столбце A — название задачи. В столбце B — дата создания задачи.</p>
-                <p>3. Начиная с B3 протяни формулу вниз: <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]">=IF(A3&lt;&gt;&quot;&quot;; IF(B3&lt;&gt;&quot;&quot;; B3; TODAY()); &quot;&quot;)</code></p>
-              </div>
             </div>
 
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -752,12 +753,12 @@ function Metric({
   };
 
   return (
-    <div className={`${compact ? "grid size-16 place-items-center p-2 text-center" : "p-3"} rounded-[14px] border border-slate-900/10 bg-white transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_60px_rgba(15,23,42,.12)]`}>
-      <div>
-        <div className={`${compact ? "text-[9px]" : "text-[10px]"} font-bold uppercase tracking-[.7px] text-slate-400`}>{label}</div>
-        <div className={`${compact ? "mt-1 text-[20px]" : "mt-1 text-[24px]"} inline-flex rounded-[8px] px-2 py-0.5 font-black tracking-[-.02em] ${tones[tone]}`}>
-          {value}
-        </div>
+    <div className={`${compact ? "flex size-16 flex-col items-center justify-center p-2 text-center" : "p-3"} rounded-[14px] border border-slate-900/10 bg-white transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_60px_rgba(15,23,42,.12)]`}>
+      <div className={`${compact ? "h-4 text-[9px] leading-4" : "text-[10px]"} whitespace-nowrap font-bold uppercase tracking-[.7px] text-slate-400`}>
+        {label}
+      </div>
+      <div className={`${compact ? "mt-1 flex h-8 min-w-8 items-center justify-center text-[20px]" : "mt-1 text-[24px]"} rounded-[8px] px-2 py-0.5 font-black tracking-[-.02em] ${tones[tone]}`}>
+        {value}
       </div>
     </div>
   );
