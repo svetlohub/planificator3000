@@ -90,10 +90,11 @@ function normalizeDate(value: string) {
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
   const ru = clean.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
-  if (ru) {
+  if (ru?.[1] && ru[2] && ru[3]) {
     const day = ru[1].padStart(2, "0");
     const month = ru[2].padStart(2, "0");
-    const year = ru[3].length === 2 ? `20${ru[3]}` : ru[3];
+    const rawYear = ru[3];
+    const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
     return `${year}-${month}-${day}`;
   }
 
