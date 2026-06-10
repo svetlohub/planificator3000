@@ -76,6 +76,7 @@ function toShortDate(value: string) {
   return `${day}.${month}.${year}`;
 }
 
+
 function normalizeText(value: string) {
   return value
     .replace(/^[-*•]\s*/, "")
@@ -319,10 +320,10 @@ export default function HomePage() {
   const previousFriday = useMemo(() => addDays(previousMonday, 4), [previousMonday]);
   const currentFriday = useMemo(() => addDays(currentMonday, 4), [currentMonday]);
 
-  const [reportStart, setReportStart] = useState(previousMonday.toISOString().slice(0, 10));
-  const [reportEnd, setReportEnd] = useState(previousFriday.toISOString().slice(0, 10));
-  const [planStart, setPlanStart] = useState(currentMonday.toISOString().slice(0, 10));
-  const [planEnd, setPlanEnd] = useState(currentFriday.toISOString().slice(0, 10));
+  const [reportStart] = useState(previousMonday.toISOString().slice(0, 10));
+  const [reportEnd] = useState(previousFriday.toISOString().slice(0, 10));
+  const [planStart] = useState(currentMonday.toISOString().slice(0, 10));
+  const [planEnd] = useState(currentFriday.toISOString().slice(0, 10));
 
   useEffect(() => {
     setName(window.localStorage.getItem(NAME_KEY) || "Паша");
@@ -532,8 +533,8 @@ export default function HomePage() {
 
               <Field label="Даты отчёта">
                 <div className="grid grid-cols-2 gap-2">
-                  <input type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} className="input date-input" />
-                  <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} className="input date-input" />
+                  <div className="date-pill">{toShortDate(reportStart)}</div>
+                  <div className="date-pill">{toShortDate(reportEnd)}</div>
                 </div>
               </Field>
             </div>
@@ -558,8 +559,8 @@ export default function HomePage() {
             <div className="mb-3 grid gap-3 md:grid-cols-[1fr_auto]">
               <Field label="Даты плана">
                 <div className="grid grid-cols-2 gap-2">
-                  <input type="date" value={planStart} onChange={(event) => setPlanStart(event.target.value)} className="input date-input" />
-                  <input type="date" value={planEnd} onChange={(event) => setPlanEnd(event.target.value)} className="input date-input" />
+                  <div className="date-pill">{toShortDate(planStart)}</div>
+                  <div className="date-pill">{toShortDate(planEnd)}</div>
                 </div>
               </Field>
 
@@ -618,6 +619,18 @@ export default function HomePage() {
 
         .date-input {
           min-width: 140px;
+        }
+
+        .date-pill {
+          min-width: 140px;
+          border-radius: 10px;
+          border: 1px solid rgba(15, 23, 42, 0.1);
+          background: #fff;
+          padding: 9px 10px;
+          font-size: 12px;
+          font-weight: 800;
+          color: #0f172a;
+          box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
         }
 
         .input:focus {
