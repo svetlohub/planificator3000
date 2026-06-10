@@ -64,9 +64,17 @@ export default function SettingsPage() {
                 placeholder="Ссылка на Google Таблицу"
                 className="w-full rounded-[10px] border border-slate-900/10 bg-slate-50 px-3 py-3 text-[13px] font-semibold outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
               />
-              <p className="mt-2 text-[12px] leading-5 text-slate-500">
-                Для демо таблица должна быть доступна по ссылке: Anyone with the link can view. Берём задачи из столбика A.
-              </p>
+              <div className="mt-3 rounded-[14px] border border-[#7C3AED]/10 bg-[#F8FAFC] p-3 text-[12px] font-medium leading-5 text-slate-600">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-[.7px] text-[#7C3AED]">Как подключить таблицу</div>
+                <p>1. Открой нужную вкладку месяца и скопируй ссылку именно из адресной строки браузера, не Share link.</p>
+                <p>2. В столбце A — название задачи. В столбце B — дата создания задачи.</p>
+                <p>
+                  3. Начиная с B3 протяни формулу вниз:
+                  <code className="ml-1 rounded bg-white px-1 py-0.5 text-[11px]">
+                    =IF(A3&lt;&gt;&quot;&quot;; IF(B3&lt;&gt;&quot;&quot;; B3; TODAY()); &quot;&quot;)
+                  </code>
+                </p>
+              </div>
             </label>
           </section>
 
