@@ -100,7 +100,10 @@ function isIgnoredTitle(value: string) {
   if (key.length < 3) return true;
   if (isUrl(key)) return true;
 
-  return IGNORED_EXACT.some((ignored) => key === normalizeKey(ignored));
+  return IGNORED_EXACT.some((ignored) => {
+    const ignoredKey = normalizeKey(ignored);
+    return key === ignoredKey || key.startsWith(ignoredKey);
+  });
 }
 
 function normalizeDate(value: string) {
@@ -239,19 +242,29 @@ function parseCsv(csv: string) {
 
 function parseSheetRows(csv: string): TaskItem[] {
   const rows = parseCsv(csv);
+  const items: TaskItem[] = [];
 
-  return dedupeTasks(
-    rows.map((row) => {
-      const title = normalizeText(row[0] || "");
-      const date = normalizeDate(row[1] || "");
+  for (const row of rows) {
+    const firstCell = row[0] || "";
+    const date = normalizeDate(row[1] || "");
 
-      return {
+    const candidates = firstCell
+      .split(/\n+/)
+      .map((item) => normalizeText(item))
+      .filter(Boolean);
+
+    for (const title of candidates) {
+      if (isIgnoredTitle(title)) continue;
+
+      items.push({
         title,
         date: date || undefined,
-        source: "sheet" as const,
-      };
-    }),
-  );
+        source: "sheet",
+      });
+    }
+  }
+
+  return dedupeTasks(items);
 }
 
 function formatCopyText(params: {
