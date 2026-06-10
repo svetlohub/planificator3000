@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
-
-import { APP_NAME } from "@planner3000/shared";
+import type { Metadata } from "next";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: APP_NAME,
-  description: "AI-ready planning workspace for teams that execute.",
+  title: "ПЛАНИФИКАТОР-3000",
+  description: "Простой помощник для недельных отчётов и планов",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
