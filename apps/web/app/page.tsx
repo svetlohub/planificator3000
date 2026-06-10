@@ -8,18 +8,18 @@ import { useEffect, useMemo, useState } from "react";
 type TaskItem = {
   title: string;
   date?: string;
-  source: "manual" | "sheet" | "routine" | "moved";
+  source: "sheet" | "routine" | "moved";
 };
 
 const NAME_KEY = "planner3000:name";
 const ROUTINE_KEY = "planner3000:routines";
 const SHEET_KEY = "planner3000:sheetUrl";
 
-const ignoredRows = [
+const IGNORED_EXACT = [
   "важные незапланированные проекты",
   "текущие задачи месяца",
   "задачи от соседних отделов",
-  "задачи от СОСЕДНИХ отделов",
+  "задачи от соседних отделов переводы вычитки",
   "название задачи",
   "ссылка на задачу",
 ];
@@ -68,18 +68,39 @@ function toShortDate(value: string) {
   return `${day}.${month}`;
 }
 
-function normalizeTask(line: string) {
-  return line
+function normalizeText(value: string) {
+  return value
     .replace(/^[-*•]\s*/, "")
     .replace(/^\d+[).]\s*/, "")
+    .replace(/[()…,]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function isIgnoredRow(value: string) {
-  const clean = normalizeTask(value).toLowerCase();
-  if (!clean) return true;
-  return ignoredRows.some((row) => clean === row.toLowerCase());
+function normalizeKey(value: string) {
+  return normalizeText(value).toLowerCase();
+}
+
+function isUrl(value: string) {
+  const lower = value.toLowerCase();
+  return (
+    lower.includes("http://") ||
+    lower.includes("https://") ||
+    lower.includes("docs.google.com") ||
+    lower.includes("bitrix24") ||
+    lower.includes("/task/") ||
+    lower.includes("crm/")
+  );
+}
+
+function isIgnoredTitle(value: string) {
+  const key = normalizeKey(value);
+
+  if (!key) return true;
+  if (key.length < 3) return true;
+  if (isUrl(key)) return true;
+
+  return IGNORED_EXACT.some((ignored) => key === normalizeKey(ignored));
 }
 
 function normalizeDate(value: string) {
@@ -87,7 +108,7 @@ function normalizeDate(value: string) {
   if (!clean) return "";
 
   const iso = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso?.[1] && iso[2] && iso[3]) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
   const ru = clean.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
   if (ru?.[1] && ru[2] && ru[3]) {
@@ -111,10 +132,10 @@ function dedupeTasks(items: TaskItem[]) {
   const result: TaskItem[] = [];
 
   for (const item of items) {
-    const title = normalizeTask(item.title);
-    const key = title.toLowerCase();
+    const title = normalizeText(item.title);
+    const key = normalizeKey(title);
 
-    if (!title || seen.has(key) || isIgnoredRow(title)) continue;
+    if (!title || isIgnoredTitle(title) || seen.has(key)) continue;
 
     seen.add(key);
     result.push({ ...item, title });
@@ -145,8 +166,6 @@ function toFutureTask(task: string) {
     [/^написал\b/i, "написать"],
     [/^подготовила\b/i, "подготовить"],
     [/^подготовил\b/i, "подготовить"],
-    [/^переводила\b/i, "перевести"],
-    [/^переводил\b/i, "перевести"],
     [/^локализовала\b/i, "локализовать"],
     [/^локализовал\b/i, "локализовать"],
     [/^собрала\b/i, "собрать"],
@@ -160,18 +179,6 @@ function toFutureTask(task: string) {
   }
 
   return task;
-}
-
-function parseManualTasks(raw: string): TaskItem[] {
-  return dedupeTasks(
-    raw
-      .split("\n")
-      .map((line) => normalizeTask(line))
-      .filter(Boolean)
-      .filter((line) => !/^задач[аи]?:?\s*\d+/i.test(line))
-      .filter((line) => !/^даты:/i.test(line))
-      .map((title) => ({ title, source: "manual" as const })),
-  );
 }
 
 function extractSheetId(url: string) {
@@ -235,7 +242,7 @@ function parseSheetRows(csv: string): TaskItem[] {
 
   return dedupeTasks(
     rows.map((row) => {
-      const title = normalizeTask(row[0] || "");
+      const title = normalizeText(row[0] || "");
       const date = normalizeDate(row[1] || "");
 
       return {
@@ -277,13 +284,12 @@ export default function HomePage() {
   const baseDate = useMemo(() => new Date(todayIso()), []);
 
   const [name, setName] = useState("Паша");
-  const [raw, setRaw] = useState("");
   const [sheetUrl, setSheetUrl] = useState("");
   const [sheetTasks, setSheetTasks] = useState<TaskItem[]>([]);
   const [routines, setRoutines] = useState<TaskItem[]>([]);
   const [movedTasks, setMovedTasks] = useState<TaskItem[]>([]);
   const [copied, setCopied] = useState(false);
-  const [sheetStatus, setSheetStatus] = useState("");
+  const [sheetStatus, setSheetStatus] = useState("Подключи таблицу в настройках и нажми загрузку.");
 
   const [reportStart, setReportStart] = useState(addDays(baseDate, -7).toISOString().slice(0, 10));
   const [reportEnd, setReportEnd] = useState(addDays(baseDate, -3).toISOString().slice(0, 10));
@@ -298,7 +304,7 @@ export default function HomePage() {
     setRoutines(
       savedRoutines
         .split("\n")
-        .map((title) => normalizeTask(title))
+        .map((title) => normalizeText(title))
         .filter(Boolean)
         .map((title) => ({ title, source: "routine" as const })),
     );
@@ -308,34 +314,25 @@ export default function HomePage() {
     window.localStorage.setItem(NAME_KEY, name);
   }, [name]);
 
-  const manualTasks = useMemo(() => parseManualTasks(raw), [raw]);
-  const allSourceTasks = useMemo(() => dedupeTasks([...manualTasks, ...sheetTasks]), [manualTasks, sheetTasks]);
-
   const reportTasks = useMemo(() => {
-    const withDates = allSourceTasks.filter((task) => task.date);
-    const withoutDates = allSourceTasks.filter((task) => !task.date);
+    const dated = sheetTasks.filter((task) => task.date);
+    const undated = sheetTasks.filter((task) => !task.date);
 
-    const datedReport = withDates.filter((task) => isDateInRange(task.date, reportStart, reportEnd));
+    const periodTasks = dated.filter((task) => isDateInRange(task.date, reportStart, reportEnd));
 
-    return dedupeTasks([...datedReport, ...withoutDates]);
-  }, [allSourceTasks, reportStart, reportEnd]);
+    if (dated.length > 0) return dedupeTasks(periodTasks);
+
+    return dedupeTasks(undated);
+  }, [sheetTasks, reportStart, reportEnd]);
 
   const planTasks = useMemo(() => {
-    const sheetPlan = allSourceTasks
+    const datedPlan = sheetTasks
       .filter((task) => task.date)
       .filter((task) => isDateInRange(task.date, planStart, planEnd))
       .map((task) => ({ ...task, title: toFutureTask(task.title) }));
 
-    const autoPlan = movedTasks.length
-      ? movedTasks
-      : reportTasks.map((task) => ({
-          ...task,
-          title: toFutureTask(task.title),
-          source: "moved" as const,
-        }));
-
-    return dedupeTasks([...sheetPlan, ...autoPlan, ...routines]);
-  }, [allSourceTasks, movedTasks, reportTasks, routines, planStart, planEnd]);
+    return dedupeTasks([...datedPlan, ...movedTasks, ...routines]);
+  }, [sheetTasks, movedTasks, routines, planStart, planEnd]);
 
   const copyText = useMemo(
     () =>
@@ -380,7 +377,7 @@ export default function HomePage() {
       const gid = extractGid(sheetUrl);
 
       if (!id) {
-        setSheetStatus("Не вижу ID таблицы. Проверь ссылку.");
+        setSheetStatus("Не вижу ID таблицы. Проверь ссылку в настройках.");
         return;
       }
 
@@ -396,7 +393,7 @@ export default function HomePage() {
       const tasks = parseSheetRows(csv);
 
       setSheetTasks(tasks);
-      setSheetStatus(`Загружено из вкладки: ${tasks.length} задач`);
+      setSheetStatus(`Загружено чистых задач: ${tasks.length}`);
     } catch {
       setSheetStatus("Ошибка загрузки. Проверь доступ к таблице и ссылку на нужную вкладку.");
     }
@@ -420,7 +417,7 @@ export default function HomePage() {
             </div>
             <div>
               <div className="text-[19px] font-black tracking-[-.02em]">ПЛАНИФИКАТОР-3000</div>
-              <div className="text-[12px] font-medium text-slate-500">Не придумывай. Не угадывай. Не усложняй.</div>
+              <div className="text-[12px] font-medium text-slate-500">Google Sheets → отчёт → план.</div>
             </div>
           </div>
 
@@ -440,7 +437,7 @@ export default function HomePage() {
           <Metric label="План на неделю" value={planTasks.length} tone="sky" />
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[.96fr_1.04fr]">
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
           <section className="flex min-h-0 flex-col rounded-[14px] border border-slate-900/10 bg-white/90 p-4 shadow-[0_18px_80px_rgba(15,23,42,.08)] backdrop-blur transition duration-150 hover:shadow-[0_22px_90px_rgba(124,58,237,.12)]">
             <div className="mb-3 grid gap-3 md:grid-cols-[1fr_1.4fr]">
               <Field label="Имя">
@@ -462,16 +459,9 @@ export default function HomePage() {
               <span className="text-[11px] font-semibold text-slate-500">{sheetStatus}</span>
             </div>
 
-            <textarea
-              value={raw}
-              onChange={(event) => setRaw(event.target.value)}
-              placeholder="Можно вставить черновик вручную. Если загружаешь таблицу: берём столбец A, дату из столбца B, ссылки из C игнорируем."
-              className="h-[145px] resize-none rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-4 text-[13px] leading-6 outline-none transition duration-150 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
-            />
-
             <TaskPanel
               title="Отчёт за неделю"
-              subtitle={`Задачи: ${reportTasks.length}`}
+              subtitle={`Неделя с ${toShortDate(reportStart)} по ${toShortDate(reportEnd)} · задач: ${reportTasks.length}`}
               tasks={reportTasks}
               actionLabel="→"
               onAction={moveToPlan}
@@ -494,13 +484,13 @@ export default function HomePage() {
 
             <TaskPanel
               title="План на неделю"
-              subtitle={`Задачи: ${planTasks.length}`}
+              subtitle={`Неделя с ${toShortDate(planStart)} по ${toShortDate(planEnd)} · задач: ${planTasks.length}`}
               tasks={planTasks}
             />
 
             <details className="mt-3 rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-3">
               <summary className="cursor-pointer text-[12px] font-bold text-slate-500">Текст для копирования</summary>
-              <pre className="mt-3 max-h-[170px] overflow-auto whitespace-pre-wrap rounded-[10px] bg-white p-3 text-[12px] leading-5 text-slate-700">
+              <pre className="mt-3 max-h-[150px] overflow-auto whitespace-pre-wrap rounded-[10px] bg-white p-3 text-[12px] leading-5 text-slate-700">
                 {copyText}
               </pre>
             </details>
@@ -593,7 +583,7 @@ function TaskPanel({
   onAction?: (task: TaskItem) => void;
 }) {
   return (
-    <section className="mt-3 min-h-0 flex-1 overflow-hidden rounded-[14px] border border-slate-900/10 bg-[#F8FAFC]">
+    <section className="min-h-0 flex-1 overflow-hidden rounded-[14px] border border-slate-900/10 bg-[#F8FAFC]">
       <div className="flex items-center justify-between border-b border-slate-900/10 bg-white px-4 py-3">
         <div>
           <div className="text-[14px] font-black tracking-[-.02em]">{title}</div>
@@ -601,7 +591,7 @@ function TaskPanel({
         </div>
       </div>
 
-      <ol className="h-full max-h-[360px] space-y-2 overflow-auto p-3">
+      <ol className="h-full max-h-[520px] space-y-2 overflow-auto p-3">
         {tasks.length ? (
           tasks.map((task, index) => (
             <li
@@ -633,7 +623,7 @@ function TaskPanel({
           ))
         ) : (
           <li className="rounded-[10px] border border-dashed border-slate-900/10 bg-white p-4 text-[13px] font-medium text-slate-400">
-            Пока нет задач.
+            Пока нет задач. Нажми «Загрузить из Google Sheets».
           </li>
         )}
       </ol>
