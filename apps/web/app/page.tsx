@@ -1,4 +1,4 @@
-/* global window, navigator */
+/* global window, navigator, fetch */
 "use client";
 
 import Link from "next/link";
@@ -10,9 +10,9 @@ type PersonBlock = {
   tasks: string[];
 };
 
-const DEFAULT_NAME = "Паша";
-const ROUTINE_KEY = "planner3000:routines";
 const NAME_KEY = "planner3000:name";
+const ROUTINE_KEY = "planner3000:routines";
+const SHEET_KEY = "planner3000:sheetUrl";
 
 const quotes = [
   "План нужен не для контроля, а для спокойствия.",
@@ -53,7 +53,6 @@ function addDays(date: Date, days: number) {
 }
 
 function toShortDate(value: string) {
-  if (!value) return "";
   const [, month, day] = value.split("-");
   return `${day}.${month}`;
 }
@@ -66,19 +65,6 @@ function normalizeTask(line: string) {
     .trim();
 }
 
-function looksLikeName(line: string) {
-  const clean = normalizeTask(line);
-  if (!clean) return false;
-  if (clean.length > 28) return false;
-  if (clean.includes(":")) return false;
-  if (/задач|неделя|план|важно|даты/i.test(clean)) return false;
-  return /^[А-ЯA-ZЁ][а-яa-zё]+(?:\s+[А-ЯA-ZЁ][а-яa-zё]+)?$/.test(clean);
-}
-
-function isContextLine(line: string) {
-  return /важно|выходной|сокращ|отпуск|больнич|срочн|дедлайн|контекст/i.test(line);
-}
-
 function dedupe(items: string[]) {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -86,7 +72,9 @@ function dedupe(items: string[]) {
   for (const item of items) {
     const clean = normalizeTask(item);
     const key = clean.toLowerCase();
+
     if (!clean || seen.has(key)) continue;
+
     seen.add(key);
     result.push(clean);
   }
@@ -106,8 +94,6 @@ function toFutureTask(task: string) {
     [/^сделал\b/i, "сделать"],
     [/^работала над\b/i, "поработать над"],
     [/^работал над\b/i, "поработать над"],
-    [/^работала с\b/i, "поработать с"],
-    [/^работал с\b/i, "поработать с"],
     [/^опубликовала\b/i, "опубликовать"],
     [/^опубликовал\b/i, "опубликовать"],
     [/^выложила\b/i, "выложить"],
@@ -116,12 +102,8 @@ function toFutureTask(task: string) {
     [/^написал\b/i, "написать"],
     [/^подготовила\b/i, "подготовить"],
     [/^подготовил\b/i, "подготовить"],
-    [/^переводила\b/i, "перевести"],
-    [/^переводил\b/i, "перевести"],
     [/^локализовала\b/i, "локализовать"],
     [/^локализовал\b/i, "локализовать"],
-    [/^собрала\b/i, "собрать"],
-    [/^собрал\b/i, "собрать"],
     [/^запустила\b/i, "запустить"],
     [/^запустил\b/i, "запустить"],
   ];
@@ -133,158 +115,200 @@ function toFutureTask(task: string) {
   return task;
 }
 
-function parseInput(raw: string, fallbackName: string, routines: string[]) {
-  const lines = raw.split("\n").map((line) => line.trim()).filter(Boolean);
-  const reportMap = new Map<string, string[]>();
-  const planMap = new Map<string, string[]>();
-  const context: string[] = [];
-
-  let mode: "report" | "plan" = "report";
-  let currentName = fallbackName;
-
-  function addTask(name: string, task: string, target: "report" | "plan") {
-    const clean = normalizeTask(task);
-    if (!clean) return;
-
-    const map = target === "report" ? reportMap : planMap;
-    const existing = map.get(name) ?? [];
-    existing.push(clean);
-    map.set(name, existing);
-  }
-
-  for (const line of lines) {
-    const normalized = normalizeTask(line);
-    const lower = normalized.toLowerCase();
-
-    if (isContextLine(normalized)) {
-      context.push(normalized);
-      continue;
-    }
-
-    if (/план на неделю|новая неделя|следующ/i.test(lower)) {
-      mode = "plan";
-      continue;
-    }
-
-    if (/отч[её]тная неделя|неделя с|прошл/i.test(lower)) {
-      mode = "report";
-      continue;
-    }
-
-    if (/^задач[аи]?:?\s*\d+/i.test(lower) || /^даты:/i.test(lower)) {
-      continue;
-    }
-
-    if (looksLikeName(normalized)) {
-      currentName = normalized;
-      if (!reportMap.has(currentName)) reportMap.set(currentName, []);
-      if (!planMap.has(currentName)) planMap.set(currentName, []);
-      continue;
-    }
-
-    addTask(currentName, normalized, mode);
-  }
-
-  if (!raw.trim() && fallbackName) {
-    reportMap.set(fallbackName, []);
-  }
-
-  const report = Array.from(reportMap.entries()).map(([name, tasks]) => ({
-    name,
-    tasks: dedupe(tasks),
-  }));
-
-  const plan = Array.from(planMap.entries()).map(([name, tasks]) => ({
-    name,
-    tasks: dedupe([...tasks, ...routines]).map(toFutureTask),
-  }));
-
-  if (plan.length === 0 && report.length > 0) {
-    for (const person of report) {
-      plan.push({
-        name: person.name,
-        tasks: dedupe([...person.tasks.map(toFutureTask), ...routines]),
-      });
-    }
-  }
-
-  return {
-    report,
-    plan,
-    context: dedupe(context),
-  };
+function parsePlainTasks(raw: string) {
+  return dedupe(
+    raw
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => !/^задач[аи]?:?\s*\d+/i.test(line))
+      .filter((line) => !/^даты:/i.test(line)),
+  );
 }
 
-function formatOutput(data: { report: PersonBlock[]; plan: PersonBlock[]; context: string[] }, reportStart: string, reportEnd: string, planStart: string, planEnd: string) {
-  const reportParts = [
+function extractSheetId(url: string) {
+  return url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1] || "";
+}
+
+function extractGid(url: string) {
+  return url.match(/[?&]gid=(\d+)/)?.[1] || "0";
+}
+
+function parseCsvFirstColumn(csv: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let i = 0; i < csv.length; i += 1) {
+    const char = csv[i];
+    const next = csv[i + 1];
+
+    if (char === '"' && quoted && next === '"') {
+      cell += '"';
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (char === "," && !quoted) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (cell || row.length) {
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
+      }
+      continue;
+    }
+
+    cell += char;
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows
+    .map((items) => normalizeTask(items[0] || ""))
+    .filter(Boolean)
+    .filter((item) => !/^задач/i.test(item))
+    .filter((item) => !/^task/i.test(item));
+}
+
+function formatDocument(params: {
+  name: string;
+  reportTasks: string[];
+  planTasks: string[];
+  reportStart: string;
+  reportEnd: string;
+  planStart: string;
+  planEnd: string;
+}) {
+  const { name, reportTasks, planTasks, reportStart, reportEnd, planStart, planEnd } = params;
+
+  const report: PersonBlock = {
+    name,
+    tasks: reportTasks,
+  };
+
+  const plan: PersonBlock = {
+    name,
+    tasks: planTasks,
+  };
+
+  return [
     `Неделя с ${toShortDate(reportStart)} по ${toShortDate(reportEnd)}`,
     "",
-    ...data.report.flatMap((person) => [
-      person.name,
-      `Задачи: ${person.tasks.length}`,
-      ...person.tasks.map((task, index) => `${index + 1}. ${task}`),
-      "",
-    ]),
-  ];
-
-  const contextParts = data.context.length
-    ? ["Важно:", ...data.context.map((item) => `• ${item}`), ""]
-    : [];
-
-  const planParts = [
+    report.name,
+    `Задачи: ${report.tasks.length}`,
+    ...report.tasks.map((task, index) => `${index + 1}. ${task}`),
+    "",
     `План на неделю с ${toShortDate(planStart)} по ${toShortDate(planEnd)}`,
     "",
-    ...data.plan.flatMap((person) => [
-      person.name,
-      `Задачи: ${person.tasks.length}`,
-      ...person.tasks.map((task, index) => `${index + 1}. ${task}`),
-      "",
-    ]),
-  ];
-
-  return [...reportParts, ...contextParts, ...planParts].join("\n").trim();
+    plan.name,
+    `Задачи: ${plan.tasks.length}`,
+    ...plan.tasks.map((task, index) => `${index + 1}. ${task}`),
+  ].join("\n").trim();
 }
 
 export default function HomePage() {
   const baseDate = useMemo(() => new Date(todayIso()), []);
-  const [name, setName] = useState(DEFAULT_NAME);
+
+  const [name, setName] = useState("Паша");
   const [raw, setRaw] = useState("");
+  const [sheetUrl, setSheetUrl] = useState("");
   const [routines, setRoutines] = useState<string[]>([]);
+  const [manualPlan, setManualPlan] = useState<string[]>([]);
+  const [copied, setCopied] = useState(false);
+  const [sheetStatus, setSheetStatus] = useState("");
+
   const [reportStart, setReportStart] = useState(addDays(baseDate, -7).toISOString().slice(0, 10));
   const [reportEnd, setReportEnd] = useState(addDays(baseDate, -3).toISOString().slice(0, 10));
   const [planStart, setPlanStart] = useState(todayIso());
   const [planEnd, setPlanEnd] = useState(addDays(baseDate, 3).toISOString().slice(0, 10));
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const savedName = window.localStorage.getItem(NAME_KEY);
-    const savedRoutines = window.localStorage.getItem(ROUTINE_KEY);
-
-    if (savedName) setName(savedName);
-    if (savedRoutines) setRoutines(savedRoutines.split("\n").map(normalizeTask).filter(Boolean));
+    setName(window.localStorage.getItem(NAME_KEY) || "Паша");
+    setSheetUrl(window.localStorage.getItem(SHEET_KEY) || "");
+    setRoutines((window.localStorage.getItem(ROUTINE_KEY) || "").split("\n").map(normalizeTask).filter(Boolean));
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem(NAME_KEY, name);
   }, [name]);
 
-  const data = useMemo(() => parseInput(raw, name, routines), [raw, name, routines]);
+  const reportTasks = useMemo(() => parsePlainTasks(raw), [raw]);
+
+  const planTasks = useMemo(() => {
+    const source = manualPlan.length ? manualPlan : reportTasks.map(toFutureTask);
+    return dedupe([...source, ...routines]);
+  }, [manualPlan, reportTasks, routines]);
 
   const output = useMemo(
-    () => formatOutput(data, reportStart, reportEnd, planStart, planEnd),
-    [data, reportStart, reportEnd, planStart, planEnd],
+    () =>
+      formatDocument({
+        name,
+        reportTasks,
+        planTasks,
+        reportStart,
+        reportEnd,
+        planStart,
+        planEnd,
+      }),
+    [name, reportTasks, planTasks, reportStart, reportEnd, planStart, planEnd],
   );
 
-  const doneWeek = data.report.reduce((sum, person) => sum + person.tasks.length, 0);
-  const plannedWeek = data.plan.reduce((sum, person) => sum + person.tasks.length, 0);
-  const doneMonth = doneWeek * 4;
-  const doneTwoMonths = doneWeek * 8;
   const quote = quotes[new Date().getDate() % quotes.length];
 
   async function copyOutput() {
     await navigator.clipboard.writeText(output);
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  function moveToPlan(task: string) {
+    setManualPlan((current) => dedupe([...current, toFutureTask(task)]));
+  }
+
+  async function loadFromGoogleSheets() {
+    setSheetStatus("Загружаю таблицу...");
+
+    try {
+      const id = extractSheetId(sheetUrl);
+      const gid = extractGid(sheetUrl);
+
+      if (!id) {
+        setSheetStatus("Не вижу ID таблицы. Проверь ссылку.");
+        return;
+      }
+
+      const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        setSheetStatus("Не удалось открыть таблицу. Сделай доступ «Anyone with the link can view».");
+        return;
+      }
+
+      const csv = await response.text();
+      const tasks = parseCsvFirstColumn(csv);
+
+      setRaw(tasks.join("\n"));
+      setSheetStatus(`Загружено задач из столбика A: ${tasks.length}`);
+    } catch {
+      setSheetStatus("Ошибка загрузки. Для демо таблица должна быть доступна по ссылке.");
+    }
   }
 
   return (
@@ -298,10 +322,10 @@ export default function HomePage() {
       ) : null}
 
       <section className="relative mx-auto flex h-screen max-w-7xl flex-col px-5 py-4">
-        <header className="mb-4 flex h-[54px] items-center justify-between">
+        <header className="mb-3 flex h-[54px] items-center justify-between">
           <div className="group flex items-center gap-3">
-            <div className="grid size-11 place-items-center rounded-[14px] bg-[#F97316] text-[24px] font-black text-[#B6FF2E] shadow-[0_10px_30px_rgba(249,115,22,.28)] transition duration-150 group-hover:-translate-y-0.5 group-hover:shadow-[0_16px_45px_rgba(249,115,22,.38)]">
-              П
+            <div className="grid size-11 place-items-center rounded-[14px] bg-[#F97316] shadow-[0_10px_30px_rgba(249,115,22,.28)] transition duration-150 group-hover:-translate-y-0.5 group-hover:shadow-[0_16px_45px_rgba(249,115,22,.38)]">
+              <span className="font-serif text-[30px] font-black leading-none text-[#B6FF2E] drop-shadow-[0_0_8px_rgba(182,255,46,.45)]">П</span>
             </div>
             <div>
               <div className="text-[19px] font-black tracking-[-.02em]">ПЛАНИФИКАТОР-3000</div>
@@ -318,55 +342,88 @@ export default function HomePage() {
           </Link>
         </header>
 
-        <div className="mb-4 grid gap-3 md:grid-cols-4">
-          <Metric label="Сделано за неделю" value={doneWeek} tone="lime" />
-          <Metric label="Сделано за месяц" value={doneMonth} tone="violet" />
-          <Metric label="Сделано за 2 месяца" value={doneTwoMonths} tone="orange" />
-          <Metric label="План на неделю" value={plannedWeek} tone="sky" />
+        <div className="mb-3 grid gap-3 md:grid-cols-4">
+          <Metric label="Сделано за неделю" value={reportTasks.length} tone="lime" />
+          <Metric label="Сделано за месяц" value={reportTasks.length * 4} tone="violet" />
+          <Metric label="Сделано за 2 месяца" value={reportTasks.length * 8} tone="orange" />
+          <Metric label="План на неделю" value={planTasks.length} tone="sky" />
         </div>
 
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[.92fr_1.08fr]">
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[.96fr_1.04fr]">
           <section className="flex min-h-0 flex-col rounded-[14px] border border-slate-900/10 bg-white/90 p-4 shadow-[0_18px_80px_rgba(15,23,42,.08)] backdrop-blur transition duration-150 hover:shadow-[0_22px_90px_rgba(124,58,237,.12)]">
-            <div className="mb-3 grid gap-3 md:grid-cols-[1fr_1fr_1fr]">
+            <div className="mb-3 grid gap-3 md:grid-cols-[1fr_1.2fr]">
               <Field label="Имя">
                 <input value={name} onChange={(event) => setName(event.target.value)} className="input" />
               </Field>
-              <Field label="Отчёт">
+
+              <Field label="Даты отчёта">
                 <div className="grid grid-cols-2 gap-2">
-                  <input type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} className="input" />
-                  <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} className="input" />
+                  <input type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} className="input date-input" />
+                  <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} className="input date-input" />
                 </div>
               </Field>
-              <Field label="План">
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="date" value={planStart} onChange={(event) => setPlanStart(event.target.value)} className="input" />
-                  <input type="date" value={planEnd} onChange={(event) => setPlanEnd(event.target.value)} className="input" />
-                </div>
-              </Field>
+            </div>
+
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button onClick={loadFromGoogleSheets} className="btn-secondary">
+                Загрузить из Google Sheets
+              </button>
+              <span className="text-[11px] font-semibold text-slate-500">{sheetStatus}</span>
             </div>
 
             <textarea
               value={raw}
               onChange={(event) => setRaw(event.target.value)}
-              placeholder="Вставь сюда черновик из чата, отчёт прошлой недели, правила команды или контекст: отпуска, выходные, срочные проекты."
-              className="min-h-0 flex-1 resize-none rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-4 text-[13px] leading-6 outline-none transition duration-150 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
+              placeholder="Вставь сюда черновик из чата или загрузи задачи из Google Sheets. Каждая строка — отдельная задача."
+              className="h-[190px] resize-none rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-4 text-[13px] leading-6 outline-none transition duration-150 focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
             />
+
+            <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-[14px] border border-slate-900/10 bg-[#F8FAFC]">
+              {reportTasks.length ? (
+                <table className="w-full text-left text-[12px]">
+                  <tbody>
+                    {reportTasks.map((task, index) => (
+                      <tr key={`${task}-${index}`} className="border-b border-slate-900/5 transition hover:bg-white">
+                        <td className="w-8 px-3 py-2 font-bold text-slate-400">{index + 1}</td>
+                        <td className="px-2 py-2 font-semibold text-slate-700">{task}</td>
+                        <td className="w-12 px-3 py-2 text-right">
+                          <button
+                            onClick={() => moveToPlan(task)}
+                            title="Перенести в план"
+                            className="rounded-[8px] bg-[#7C3AED]/10 px-2 py-1 font-black text-[#7C3AED] transition hover:-translate-y-0.5 hover:bg-[#7C3AED] hover:text-white hover:shadow-[0_10px_30px_rgba(124,58,237,.25)]"
+                          >
+                            →
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-4 text-[13px] font-medium text-slate-400">Пока нет задач.</div>
+              )}
+            </div>
 
             <div className="mt-3 flex items-center justify-between">
               <span className="rounded-full bg-[#7C3AED]/10 px-3 py-2 text-[11px] font-bold text-[#7C3AED]">
-                Найдено: {doneWeek} задач
+                Найдено: {reportTasks.length} задач
               </span>
               <button onClick={() => setRaw("")} className="btn-secondary">Очистить</button>
             </div>
           </section>
 
           <section className="flex min-h-0 flex-col rounded-[14px] border border-slate-900/10 bg-white/90 p-4 shadow-[0_18px_80px_rgba(15,23,42,.08)] backdrop-blur transition duration-150 hover:shadow-[0_22px_90px_rgba(132,204,22,.14)]">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[20px] font-black tracking-[-.02em]">Готовый документ</div>
-                <div className="text-[12px] font-medium text-slate-500">Отчётная неделя + план на следующую неделю</div>
+            <div className="mb-3 grid gap-3 md:grid-cols-[1fr_auto]">
+              <Field label="Даты плана">
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={planStart} onChange={(event) => setPlanStart(event.target.value)} className="input date-input" />
+                  <input type="date" value={planEnd} onChange={(event) => setPlanEnd(event.target.value)} className="input date-input" />
+                </div>
+              </Field>
+
+              <div className="flex items-end">
+                <button onClick={copyOutput} className="btn-primary">Скопировать</button>
               </div>
-              <button onClick={copyOutput} className="btn-primary">Скопировать</button>
             </div>
 
             <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-[14px] border border-slate-900/10 bg-[#F8FAFC] p-5 text-[13px] leading-6 text-slate-900 shadow-inner">
@@ -391,6 +448,10 @@ export default function HomePage() {
           font-weight: 700;
           outline: none;
           transition: 0.15s ease;
+        }
+
+        .date-input {
+          min-width: 132px;
         }
 
         .input:focus {
@@ -419,8 +480,8 @@ export default function HomePage() {
           border-radius: 10px;
           border: 1px solid rgba(15, 23, 42, 0.1);
           background: #fff;
-          padding: 10px 14px;
-          font-size: 13px;
+          padding: 9px 13px;
+          font-size: 12px;
           font-weight: 800;
           transition: 0.15s ease;
         }
@@ -452,9 +513,9 @@ function Metric({ label, value, tone }: { label: string; value: number; tone: "l
   };
 
   return (
-    <div className="rounded-[14px] border border-slate-900/10 bg-white p-4 transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_60px_rgba(15,23,42,.12)]">
+    <div className="rounded-[14px] border border-slate-900/10 bg-white p-3 transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_60px_rgba(15,23,42,.12)]">
       <div className="text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">{label}</div>
-      <div className={`mt-2 inline-flex rounded-[8px] px-3 py-1 text-[26px] font-black tracking-[-.02em] ${tones[tone]}`}>
+      <div className={`mt-1 inline-flex rounded-[8px] px-3 py-1 text-[24px] font-black tracking-[-.02em] ${tones[tone]}`}>
         {value}
       </div>
     </div>

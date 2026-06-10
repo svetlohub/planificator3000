@@ -1,7 +1,7 @@
 /* global window */
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const NAME_KEY = "planner3000:name";
@@ -9,6 +9,8 @@ const ROUTINE_KEY = "planner3000:routines";
 const SHEET_KEY = "planner3000:sheetUrl";
 
 export default function SettingsPage() {
+  const router = useRouter();
+
   const [name, setName] = useState("");
   const [sheetUrl, setSheetUrl] = useState("");
   const [routines, setRoutines] = useState("");
@@ -23,6 +25,7 @@ export default function SettingsPage() {
     window.localStorage.setItem(NAME_KEY, name);
     window.localStorage.setItem(SHEET_KEY, sheetUrl);
     window.localStorage.setItem(ROUTINE_KEY, routines);
+    router.push("/");
   }
 
   return (
@@ -30,31 +33,19 @@ export default function SettingsPage() {
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(124,58,237,.14),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(132,204,22,.18),transparent_24%)]" />
 
       <section className="relative mx-auto max-w-3xl px-5 py-5">
-        <header className="mb-5 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="grid size-11 place-items-center rounded-[14px] bg-[#F97316] text-[24px] font-black text-[#B6FF2E] shadow-[0_10px_30px_rgba(249,115,22,.28)]">
-              П
-            </div>
-            <div>
-              <div className="text-[19px] font-black tracking-[-.02em]">ПЛАНИФИКАТОР-3000</div>
-              <div className="text-[12px] font-medium text-slate-500">Настройки</div>
-            </div>
-          </Link>
-
-          <Link
-            href="/"
-            className="rounded-[10px] border border-slate-900/10 bg-white px-4 py-2 text-[13px] font-bold shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_12px_35px_rgba(15,23,42,.1)]"
-          >
-            Назад
-          </Link>
+        <header className="mb-5 flex items-center gap-3">
+          <div className="grid size-11 place-items-center rounded-[14px] bg-[#F97316] shadow-[0_10px_30px_rgba(249,115,22,.28)]">
+            <span className="font-serif text-[30px] font-black leading-none text-[#B6FF2E] drop-shadow-[0_0_8px_rgba(182,255,46,.45)]">П</span>
+          </div>
+          <div>
+            <div className="text-[19px] font-black tracking-[-.02em]">ПЛАНИФИКАТОР-3000</div>
+            <div className="text-[12px] font-medium text-slate-500">Настройки</div>
+          </div>
         </header>
 
         <div className="space-y-4">
           <section className="rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-[0_18px_80px_rgba(15,23,42,.08)]">
             <h1 className="text-[24px] font-black tracking-[-.02em]">Основные настройки</h1>
-            <p className="mt-1 text-[13px] leading-6 text-slate-500">
-              Эти данные сохраняются в браузере. Ничего не отправляется на сервер без вашего действия.
-            </p>
 
             <label className="mt-4 block">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-[.7px] text-slate-400">Ваше имя</span>
@@ -70,20 +61,17 @@ export default function SettingsPage() {
               <input
                 value={sheetUrl}
                 onChange={(event) => setSheetUrl(event.target.value)}
-                placeholder="Ссылка на таблицу"
+                placeholder="Ссылка на Google Таблицу"
                 className="w-full rounded-[10px] border border-slate-900/10 bg-slate-50 px-3 py-3 text-[13px] font-semibold outline-none transition focus:border-[#7C3AED] focus:bg-white focus:ring-4 focus:ring-[#7C3AED]/10"
               />
               <p className="mt-2 text-[12px] leading-5 text-slate-500">
-                Следующий backend-шаг: брать задачи из столбика A, смотреть дату добавления и включать задачи в отчёт недели.
+                Для демо таблица должна быть доступна по ссылке: Anyone with the link can view. Берём задачи из столбика A.
               </p>
             </label>
           </section>
 
           <section className="rounded-[14px] border border-slate-900/10 bg-white p-5 shadow-[0_18px_80px_rgba(15,23,42,.08)]">
             <h2 className="text-[20px] font-black tracking-[-.02em]">Рутинные задачи</h2>
-            <p className="mt-1 text-[13px] leading-6 text-slate-500">
-              Каждая строка — одна постоянная задача. Они автоматически добавляются в план на следующую неделю.
-            </p>
 
             <textarea
               value={routines}
@@ -96,7 +84,7 @@ export default function SettingsPage() {
               onClick={save}
               className="mt-4 rounded-[10px] bg-[#7C3AED] px-5 py-3 text-[13px] font-bold text-white shadow-[0_10px_30px_rgba(124,58,237,.22)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_55px_rgba(124,58,237,.34)]"
             >
-              Сохранить настройки
+              Сохранить и вернуться
             </button>
           </section>
         </div>
